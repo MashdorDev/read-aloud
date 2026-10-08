@@ -3,9 +3,10 @@
 //The speech engine re-chunks and rewrites the text (word replacements, URLs, punctuation),
 //so chunks are located by matching letters and digits only against the selection's text nodes.
 //With voices that report word events, the current sentence and word are highlighted;
-//otherwise the whole chunk is.
+//otherwise the whole chunk is. The whole selection stays tinted so you can see what's left to read.
 
 var pageHighlighter = (function() {
+  var selectionHighlight = "read-aloud-selection"
   var contextHighlight = "read-aloud-context"
   var wordHighlight = "read-aloud-word"
   //fast enough to follow words at normal speaking rates
@@ -33,6 +34,9 @@ var pageHighlighter = (function() {
       positionKey: null,
       timer: setInterval(poll, pollInterval),
     }
+    var selection = new Highlight(range)
+    selection.priority = -1
+    CSS.highlights.set(selectionHighlight, selection)
     window.getSelection().removeAllRanges()
   }
 
@@ -40,6 +44,7 @@ var pageHighlighter = (function() {
     if (!session) return
     clearInterval(session.timer)
     session = null
+    CSS.highlights.delete(selectionHighlight)
     CSS.highlights.delete(contextHighlight)
     CSS.highlights.delete(wordHighlight)
   }
@@ -227,6 +232,7 @@ var pageHighlighter = (function() {
     installStyle.done = true
     var sheet = new CSSStyleSheet()
     sheet.replaceSync(
+      "::highlight(" + selectionHighlight + ") { background-color: rgba(66, 133, 244, 0.14); }\n" +
       "::highlight(" + contextHighlight + ") { background-color: #fff3bf; color: #000; }\n" +
       "::highlight(" + wordHighlight + ") { background-color: #ffc933; color: #000; }"
     )
