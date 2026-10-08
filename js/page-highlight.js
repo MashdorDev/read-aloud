@@ -92,8 +92,12 @@ var pageHighlighter = (function() {
   function onCommand(name, arg) {
     var request
     switch (name) {
-      case "pause": request = sendToPlayer("pause"); break
-      case "resume": request = sendToPlayer("resume"); break
+      //asks the player for its state, the bar's copy can be up to one poll behind
+      case "toggle":
+        request = sendToPlayer("getSpeechInfo").then(function(result) {
+          return sendToPlayer(result.state == "PAUSED" ? "resume" : "pause")
+        })
+        break
       case "rewind": request = sendToPlayer("skipSentence", [-1]); break
       case "forward": request = sendToPlayer("skipSentence", [1]); break
       case "rate":

@@ -44,8 +44,25 @@ var pageControls = (function() {
     .loading .toggle { opacity: 0.6; }
   `
 
+  //built with DOM calls rather than innerHTML, which pages enforcing Trusted Types would block
   function icon(name) {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + icons[name] + '"/></svg>'
+    var svgNs = "http://www.w3.org/2000/svg"
+    var svg = document.createElementNS(svgNs, "svg")
+    svg.setAttribute("viewBox", "0 0 24 24")
+    svg.setAttribute("aria-hidden", "true")
+    var path = document.createElementNS(svgNs, "path")
+    path.setAttribute("d", icons[name])
+    svg.appendChild(path)
+    return svg
+  }
+
+  function button(className, label, iconName) {
+    var elem = document.createElement("button")
+    elem.className = className
+    elem.title = label
+    elem.setAttribute("aria-label", label)
+    elem.appendChild(icon(iconName))
+    return elem
   }
 
   function show(onCommand) {
@@ -54,31 +71,41 @@ var pageControls = (function() {
     var hostStyle = {position: "fixed", left: "50%", bottom: "24px", transform: "translateX(-50%)", "z-index": "2147483647", margin: "0", padding: "0", border: "0", background: "none"}
     for (var name in hostStyle) host.style.setProperty(name, hostStyle[name], "important")
     var root = host.attachShadow({mode: "open"})
-    root.innerHTML = '<style>' + css + '</style>' +
-      '<div class="bar" role="toolbar" aria-label="Read Aloud">' +
-        '<button class="grip" title="Drag to move" aria-hidden="true" tabindex="-1">' + icon("grip") + '</button>' +
-        '<button class="rewind" title="Previous sentence" aria-label="Previous sentence">' + icon("rewind") + '</button>' +
-        '<button class="toggle" title="Pause" aria-label="Pause">' + icon("pause") + '</button>' +
-        '<button class="forward" title="Next sentence" aria-label="Next sentence">' + icon("forward") + '</button>' +
-        '<select class="rate" title="Speed" aria-label="Speed">' +
-          rates.map(function(rate) {return '<option value="' + rate + '">' + rate + 'x</option>'}).join("") +
-        '</select>' +
-        '<button class="stop" title="Stop" aria-label="Stop">' + icon("stop") + '</button>' +
-      '</div>'
-    elems = {
-      root: root,
-      bar: root.querySelector(".bar"),
-      toggle: root.querySelector(".toggle"),
-      rate: root.querySelector(".rate"),
-      state: null,
-    }
-    root.querySelector(".rewind").addEventListener("click", function() {onCommand("rewind")})
-    root.querySelector(".forward").addEventListener("click", function() {onCommand("forward")})
-    root.querySelector(".stop").addEventListener("click", function() {onCommand("stop")})
-    elems.toggle.addEventListener("click", function() {onCommand(elems.state == "PAUSED" ? "resume" : "pause")})
-    elems.rate.addEventListener("change", function() {onCommand("rate", Number(elems.rate.value))})
-    makeDraggable(root.querySelector(".grip"))
+    var style = document.createElement("style")
+    style.textContent = css
+    var bar = document.createElement("div")
+    bar.className = "bar"
+    bar.setAttribute("role", "toolbar")
+    bar.setAttribute("aria-label", "Read Aloud")
+    var grip = button("grip", "Drag to move", "grip")
+    grip.tabIndex = -1
+    grip.setAttribute("aria-hidden", "true")
+    var rewind = button("rewind", "Previous sentence", "rewind")
+    var toggle = button("toggle", "Pause", "pause")
+    var forward = button("forward", "Next sentence", "forward")
+    var rate = document.createElement("select")
+    rate.className = "rate"
+    rate.title = "Speed"
+    rate.setAttribute("aria-label", "Speed")
+    rates.forEach(function(value) {rate.appendChild(rateOption(value))})
+    var stop = button("stop", "Stop", "stop")
+    bar.append(grip, rewind, toggle, forward, rate, stop)
+    root.append(style, bar)
+    elems = {root: root, bar: bar, toggle: toggle, rate: rate, state: null}
+    rewind.addEventListener("click", function() {onCommand("rewind")})
+    forward.addEventListener("click", function() {onCommand("forward")})
+    stop.addEventListener("click", function() {onCommand("stop")})
+    toggle.addEventListener("click", function() {onCommand("toggle")})
+    rate.addEventListener("change", function() {onCommand("rate", Number(rate.value))})
+    makeDraggable(grip)
     document.documentElement.appendChild(host)
+  }
+
+  function rateOption(value) {
+    var option = document.createElement("option")
+    option.value = value
+    option.textContent = value + "x"
+    return option
   }
 
   function update(state, rate) {
@@ -86,18 +113,13 @@ var pageControls = (function() {
     if (state != elems.state) {
       elems.state = state
       var paused = state == "PAUSED"
-      elems.toggle.innerHTML = icon(paused ? "play" : "pause")
+      elems.toggle.replaceChildren(icon(paused ? "play" : "pause"))
       elems.toggle.title = paused ? "Play" : "Pause"
       elems.toggle.setAttribute("aria-label", elems.toggle.title)
       elems.bar.classList.toggle("loading", state == "LOADING")
     }
     if (rate != null && elems.root.activeElement != elems.rate) {
-      if (!rates.includes(rate)) {
-        var option = document.createElement("option")
-        option.value = rate
-        option.textContent = rate + "x"
-        elems.rate.appendChild(option)
-      }
+      if (!rates.includes(rate)) elems.rate.appendChild(rateOption(rate))
       elems.rate.value = String(rate)
     }
   }
