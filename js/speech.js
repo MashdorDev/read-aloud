@@ -12,6 +12,7 @@ function Speech(texts, options) {
 
   const engine = pickEngine()
   let enginePlaybackState
+  let wordPosition
 
   this.options = options;
   this.play = () => playbackState$.next("resumed")
@@ -76,7 +77,9 @@ function Speech(texts, options) {
     return {
       texts: enginePlaybackState ? enginePlaybackState.texts : texts,
       position: {
-        index: enginePlaybackState ? enginePlaybackState.index : playlist.getIndex()
+        index: enginePlaybackState ? enginePlaybackState.index : playlist.getIndex(),
+        word: wordPosition && wordPosition.word,
+        sentence: wordPosition && wordPosition.sentence,
       },
       isRTL: /^(ar|az|dv|he|iw|ku|fa|ur)\b/.test(options.lang),
       engine: immediate(() => {
@@ -165,6 +168,12 @@ function Speech(texts, options) {
     next(event) {
       isLoadingSubject.next(event.type == "load")
       switch (event.type) {
+        case "load":
+          wordPosition = null
+          break
+        case "word":
+          if (!enginePlaybackState) wordPosition = makeWordPosition(texts[playlist.getIndex()], event)
+          break
         case "start":
           if (event.sentenceStartIndicies) {
             enginePlaybackState = {
@@ -298,6 +307,32 @@ function Speech(texts, options) {
       }),
       rxjs.takeWhile(event => event.type != "end", true)
     )
+  }
+
+
+
+  //Word events give the word's start, and its length on most engines
+  function makeWordPosition(text, event) {
+    if (text == null || event.charIndex == null || event.charIndex >= text.length) return null
+    const startIndex = event.charIndex
+    let endIndex = event.length ? startIndex + event.length : text.slice(startIndex).search(/\s|$/) + startIndex
+    endIndex = Math.min(endIndex, text.length)
+    return {
+      word: {startIndex, endIndex},
+      sentence: getSentenceAround(text, startIndex),
+    }
+  }
+
+  function getSentenceAround(text, index) {
+    const boundary = /[.!?。！？]+["')\]”’]*(\s+|$)|\n+/g
+    let startIndex = 0
+    let match
+    while ((match = boundary.exec(text))) {
+      const endIndex = match.index + match[0].length
+      if (endIndex > index) return {startIndex, endIndex: match.index + match[0].trimEnd().length}
+      startIndex = endIndex
+    }
+    return {startIndex, endIndex: text.length}
   }
 
 
