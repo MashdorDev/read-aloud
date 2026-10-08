@@ -22,6 +22,8 @@ var readAloudDoc = new function() {
     else return null;
   }
 
+  this.hasDomSelection = true
+
   this.getSelectedText = async function() {
     const math = await getMath()
     try {

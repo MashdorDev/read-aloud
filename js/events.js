@@ -85,10 +85,25 @@ brapi.contextMenus.onClicked.addListener(function(info, tab) {
         else return undefined
       })
       .then(function(lang) {
-        return playText(info.selectionText, {lang: lang})
+        return Promise.all([
+          highlightSelectionOnPage(tab, info.frameId),
+          playText(info.selectionText, {lang: lang}),
+        ])
       })
       .catch(handleHeadlessError)
 })
+
+//Only the top frame: injectContentScript can't target a subframe's getRequireJs reliably
+async function highlightSelectionOnPage(tab, frameId) {
+  if (!tab || tab.id == -1 || frameId) return
+  try {
+    if (!await contentScriptAlreadyInjected(tab)) await injectContentScript(tab)
+    await brapi.tabs.sendMessage(tab.id, {dest: "contentScript", method: "startPageHighlight"})
+  }
+  catch (err) {
+    console.warn("Can't highlight on page", err)
+  }
+}
 
 
 /**
@@ -415,6 +430,7 @@ async function injectContentScript(tab, frameId, extraScripts) {
       "js/jquery-3.7.1.min.js",
       "js/defaults.js",
       "js/messaging.js",
+      "js/page-highlight.js",
       "js/content.js",
     ]
   })

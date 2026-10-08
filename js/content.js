@@ -4,7 +4,8 @@
     getRequireJs: getRequireJs,
     getDocumentInfo: getInfo,
     getCurrentIndex: getCurrentIndex,
-    getTexts: getTexts
+    getTexts: getTexts,
+    startPageHighlight: startPageHighlight
   })
 
   function getInfo() {
@@ -60,7 +61,11 @@
 
   async function getTexts(index, quietly) {
     if (index < 0) {
-      if (index == -100) return (await getSelectedText()).split(paragraphSplitter);
+      if (index == -100) {
+        const text = await getSelectedText()
+        if (!quietly) startPageHighlight()
+        return text.split(paragraphSplitter)
+      }
       else return null;
     }
     else {
@@ -72,6 +77,13 @@
           return texts;
         })
     }
+  }
+
+  function startPageHighlight() {
+    //readers with their own selection logic (Google Docs, OneDrive) don't select real DOM text
+    if (readAloudDoc.getSelectedText && !readAloudDoc.hasDomSelection) return
+    const selection = window.getSelection()
+    if (selection.rangeCount) pageHighlighter.start(selection.getRangeAt(0).cloneRange())
   }
 
   function getSelectedText() {

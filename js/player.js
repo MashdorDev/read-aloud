@@ -188,6 +188,7 @@ var messageHandlers = {
   pause: pause,
   resume: resume,
   getPlaybackState: getPlaybackState,
+  getSpeechInfo: getSpeechInfo,
   forward: forward,
   rewind: rewind,
   seek: seek,
@@ -288,6 +289,13 @@ function pause() {
 function resume() {
   if (activeDoc) return activeDoc.play()
   else return Promise.resolve()
+}
+
+//Like getPlaybackState, but leaves playbackError for the popup to report
+async function getSpeechInfo() {
+  if (!activeDoc) return {state: "STOPPED"}
+  const [state, speech] = await Promise.all([activeDoc.getState(), activeDoc.getActiveSpeech()])
+  return {state, speechInfo: speech && speech.getInfo()}
 }
 
 function getPlaybackState() {
