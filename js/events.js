@@ -430,6 +430,7 @@ async function injectContentScript(tab, frameId, extraScripts) {
       "js/jquery-3.7.1.min.js",
       "js/defaults.js",
       "js/messaging.js",
+      "js/page-controls.js",
       "js/page-highlight.js",
       "js/content.js",
     ]

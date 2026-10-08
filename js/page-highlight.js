@@ -38,12 +38,17 @@ var pageHighlighter = (function() {
     selection.priority = -1
     CSS.highlights.set(selectionHighlight, selection)
     window.getSelection().removeAllRanges()
+    pageControls.show(onCommand)
+    getRateKey().then(getSetting).then(function(rate) {pageControls.update(null, rate || defaults.rate)})
+    document.addEventListener("click", onClick, true)
   }
 
   function stop() {
     if (!session) return
     clearInterval(session.timer)
     session = null
+    pageControls.hide()
+    document.removeEventListener("click", onClick, true)
     CSS.highlights.delete(selectionHighlight)
     CSS.highlights.delete(contextHighlight)
     CSS.highlights.delete(wordHighlight)
@@ -60,10 +65,12 @@ var pageHighlighter = (function() {
       if (current.seen || Date.now()-current.startTime > startupTimeout) stop()
       return
     }
+    pageControls.update(result.state)
 
     var textsKey = speech.texts.join("\n")
     if (textsKey != current.textsKey) {
       current.textsKey = textsKey
+      current.texts = speech.texts
       current.spans = alignChunks(current.index, speech.texts)
       if (!current.spans.some(Boolean)) {
         //the player is reading something other than this selection
@@ -80,6 +87,85 @@ var pageHighlighter = (function() {
       current.positionKey = positionKey
       paint(current.index, current.spans[position.index], speech.texts[position.index], position)
     }
+  }
+
+  function onCommand(name, arg) {
+    var request
+    switch (name) {
+      case "pause": request = sendToPlayer("pause"); break
+      case "resume": request = sendToPlayer("resume"); break
+      case "rewind": request = sendToPlayer("skipSentence", [-1]); break
+      case "forward": request = sendToPlayer("skipSentence", [1]); break
+      case "rate":
+        request = getRateKey()
+          .then(function(key) {return updateSettings({[key]: arg})})
+          .then(function() {return sendToPlayer("setRate", [arg])})
+        break
+      case "stop":
+        request = sendToPlayer("stop")
+        stop()
+        break
+      default: throw new Error("Unknown command " + name)
+    }
+    request.catch(console.error)
+  }
+
+  //Clicking a word in the marked text jumps reading to that word
+  function onClick(event) {
+    if (!session || !session.spans || event.button != 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+    if (pageControls.contains(event) || !window.getSelection().isCollapsed) return
+    var caret = getCaret(event.clientX, event.clientY)
+    if (!caret) return
+    var pos = findIndexPosition(session.index, caret.node, caret.offset)
+    if (pos < 0) return
+    var chunkIndex = session.spans.findIndex(function(span) {return span && pos >= span.start && pos < span.end})
+    if (chunkIndex < 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    var text = session.texts[chunkIndex]
+    sendToPlayer("seekToChar", [chunkIndex, findWordStart(text, pos - session.spans[chunkIndex].start)]).catch(console.error)
+  }
+
+  function getCaret(x, y) {
+    if (document.caretPositionFromPoint) {
+      var position = document.caretPositionFromPoint(x, y)
+      return position && {node: position.offsetNode, offset: position.offset}
+    }
+    var range = document.caretRangeFromPoint && document.caretRangeFromPoint(x, y)
+    return range && {node: range.startContainer, offset: range.startOffset}
+  }
+
+  //The index position of the first letter or digit at or after the caret, if the caret is inside the selection
+  function findIndexPosition(index, node, offset) {
+    for (var i=0; i<index.map.length; i++) {
+      var entry = index.map[i]
+      if (entry.node == node && entry.offset >= offset) return i
+    }
+    return -1
+  }
+
+  //Converts a count of letters and digits into the chunk text's character offset, backed up to the word's start
+  function findWordStart(text, count) {
+    var seen = 0
+    for (var i=0; i<text.length; i++) {
+      if (normalizeChar(text[i]).length == 1) {
+        if (seen == count) break
+        seen++
+      }
+    }
+    while (i > 0 && normalizeChar(text[i-1]).length == 1) i--
+    return i
+  }
+
+  //rate is saved per voice, the same way the options page saves it
+  function getRateKey() {
+    return getSettings(["voiceName"]).then(function(settings) {return "rate" + (settings.voiceName || "")})
+  }
+
+  async function sendToPlayer(method, args) {
+    var result = await brapi.runtime.sendMessage({dest: "player", method: method, args: args})
+    if (result && result.error) throw result.error
+    return result
   }
 
   function paint(index, span, text, position) {

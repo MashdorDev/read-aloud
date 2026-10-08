@@ -13,6 +13,8 @@ function Speech(texts, options) {
   const engine = pickEngine()
   let enginePlaybackState
   let wordPosition
+  //position to show right after a seek, before the engine reports its first word
+  let pendingPosition = null
 
   this.options = options;
   this.play = () => playbackState$.next("resumed")
@@ -24,10 +26,9 @@ function Speech(texts, options) {
   this.canRewind = () => engine.rewind != null || playlist.canRewind()
   this.forward = () => cmd$.next({name: "forward", delay: 750})
   this.rewind = () => cmd$.next({name: "rewind", delay: 750})
-  this.seek = index => {
-    cmd$.next({name: "seek", index})
-    playbackState$.next("resumed")
-  }
+  this.seek = (index, offset) => seekTo(index, offset, true)
+  this.skipSentence = skipSentence
+  this.setRate = setRate
   this.gotoEnd = () => cmd$.next({name: "gotoEnd"})
 
   function pickEngine() {
@@ -144,7 +145,7 @@ function Speech(texts, options) {
             engine.seek(cmd.index)
             return current
           } else {
-            const playback$ = playlist.seek(cmd.index)
+            const playback$ = playlist.seek(cmd.index, cmd.offset)
             return playback$ ? {playback$, ts: Date.now()} : current
           }
         }
@@ -169,7 +170,8 @@ function Speech(texts, options) {
       isLoadingSubject.next(event.type == "load")
       switch (event.type) {
         case "load":
-          wordPosition = null
+          wordPosition = pendingPosition
+          pendingPosition = null
           break
         case "word":
           if (!enginePlaybackState) wordPosition = makeWordPosition(texts[playlist.getIndex()], event)
@@ -242,10 +244,10 @@ function Speech(texts, options) {
           return makePlayback(texts[index])
         }
       },
-      seek(toIndex) {
+      seek(toIndex, offset) {
         if (toIndex >= 0 && toIndex < texts.length) {
           index = toIndex
-          return makePlayback(texts[index])
+          return makePlayback(texts[index], offset)
         }
       },
       gotoEnd() {
@@ -260,9 +262,55 @@ function Speech(texts, options) {
 
 
 
-  function makePlayback(text) {
+  //Starting partway into a chunk speaks the rest of it, with event positions shifted back onto the whole chunk
+  function makePlayback(text, offset) {
+    if (offset) {
+      return makePlayback(text.slice(offset)).pipe(
+        rxjs.map(event => event.charIndex != null ? {...event, charIndex: event.charIndex + offset} : event)
+      )
+    }
     if (engine.stop != null) return makePlaybackLegacy(text)
     else return engine.speak(text, options, playbackState$)
+  }
+
+  function seekTo(index, offset, resume) {
+    const text = texts[index]
+    pendingPosition = offset && text != null ? makeWordPosition(text, {charIndex: offset}) : null
+    cmd$.next({name: "seek", index, offset})
+    if (resume) playbackState$.next("resumed")
+  }
+
+  //Moves by sentence when the engine reports words, otherwise falls back to moving by chunk.
+  //Going back restarts the current sentence, or goes to the previous one when already at its start
+  //or when pressed again right after a restart.
+  const repeatRewindWindow = 2000
+  let lastSentenceRestart = 0
+  function skipSentence(direction) {
+    const index = playlist.getIndex()
+    const text = texts[index]
+    let target = null
+    if (!enginePlaybackState && wordPosition && text != null) {
+      const {word, sentence} = wordPosition
+      if (direction > 0) {
+        const next = sentence.endIndex + text.slice(sentence.endIndex).search(/\S|$/)
+        if (next < text.length) target = next
+      }
+      else if (word.startIndex > sentence.startIndex && Date.now() - lastSentenceRestart > repeatRewindWindow) {
+        target = sentence.startIndex
+        lastSentenceRestart = Date.now()
+      }
+      else if (sentence.startIndex > 0) target = getSentenceAround(text, sentence.startIndex - 1).startIndex
+    }
+    if (target != null) seekTo(index, target, true)
+    else cmd$.next({name: direction > 0 ? "forward" : "rewind", delay: 750})
+  }
+
+  //Restarts from the current word so the new rate applies right away
+  function setRate(rate) {
+    options.rate = rate * (isGoogleNative(options.voice) ? 0.9 : 1)
+    const index = playlist.getIndex()
+    if (enginePlaybackState || index == null) return
+    seekTo(index, wordPosition ? wordPosition.word.startIndex : 0, playbackState$.value == "resumed")
   }
 
   function makePlaybackLegacy(text) {

@@ -189,6 +189,9 @@ var messageHandlers = {
   resume: resume,
   getPlaybackState: getPlaybackState,
   getSpeechInfo: getSpeechInfo,
+  seekToChar: (index, offset) => withActiveSpeech(speech => speech.seek(index, offset)),
+  skipSentence: direction => withActiveSpeech(speech => speech.skipSentence(direction)),
+  setRate: rate => withActiveSpeech(speech => speech.setRate(rate)),
   forward: forward,
   rewind: rewind,
   seek: seek,
@@ -296,6 +299,12 @@ async function getSpeechInfo() {
   if (!activeDoc) return {state: "STOPPED"}
   const [state, speech] = await Promise.all([activeDoc.getState(), activeDoc.getActiveSpeech()])
   return {state, speechInfo: speech && speech.getInfo()}
+}
+
+async function withActiveSpeech(fn) {
+  const speech = activeDoc && await activeDoc.getActiveSpeech()
+  if (!speech) throw new Error("Not reading")
+  fn(speech)
 }
 
 function getPlaybackState() {
