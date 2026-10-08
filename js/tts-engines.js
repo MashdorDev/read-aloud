@@ -1,5 +1,5 @@
 
-var browserTtsEngine = brapi.tts ? new BrowserTtsEngine() : (typeof speechSynthesis != 'undefined' ? new WebSpeechEngine() : new DummyTtsEngine());
+var browserTtsEngine = brapi.tts ? new BrowserTtsEngine() : (typeof speechSynthesis != 'undefined' ? (hasBackgroundPage() ? new BackgroundSpeechEngine() : new WebSpeechEngine()) : new DummyTtsEngine());
 var premiumTtsEngine = new PremiumTtsEngine(config.serviceUrl);
 var googleTranslateTtsEngine = new GoogleTranslateTtsEngine();
 var amazonPollyTtsEngine = new AmazonPollyTtsEngine();
@@ -146,6 +146,66 @@ function WebSpeechEngine() {
       return [];
     })
   }
+}
+
+
+//Firefox: relays speech to the background page, see background-speech.js
+function BackgroundSpeechEngine() {
+  const webSpeech = new WebSpeechEngine()
+  const keepAliveInterval = 20*1000
+  let utterId = null
+  let onEvent = null
+  let keepAliveTimer = null
+
+  registerMessageListener("backgroundSpeechClient", {
+    onSpeechEvent(id, event) {
+      if (id != utterId || !onEvent) return
+      if (event.type == "end" || event.type == "error") setActive(false)
+      onEvent(event)
+    }
+  })
+
+  this.speak = function(text, options, callback) {
+    utterId = Math.random().toString(36).slice(2)
+    onEvent = callback
+    setActive(true)
+    send("speak", [utterId, text, {
+      voiceName: options.voice.voiceName,
+      lang: options.lang,
+      rate: options.rate,
+      pitch: options.pitch,
+      volume: options.volume,
+    }])
+    .catch(err => {
+      setActive(false)
+      callback({type: "error", error: err})
+    })
+  }
+  this.stop = function() {
+    onEvent = null
+    setActive(false)
+    send("stop").catch(console.error)
+  }
+  this.pause = () => send("pause").catch(console.error)
+  this.resume = () => send("resume").catch(console.error)
+  this.isSpeaking = callback => send("isSpeaking").then(callback, () => callback(false))
+  this.getVoices = webSpeech.getVoices
+
+  function setActive(active) {
+    clearInterval(keepAliveTimer)
+    keepAliveTimer = active ? setInterval(() => send("keepAlive").catch(console.error), keepAliveInterval) : null
+  }
+
+  async function send(method, args) {
+    const result = await brapi.runtime.sendMessage({dest: "backgroundSpeech", method, args})
+    if (result && result.error) throw result.error
+    return result
+  }
+}
+
+function hasBackgroundPage() {
+  const background = brapi.runtime.getManifest().background
+  return background != null && background.scripts != null
 }
 
 
