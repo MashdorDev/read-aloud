@@ -17,7 +17,15 @@ for (const entry of fs.readdirSync(root)) {
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"))
 const background = fs.readFileSync(path.join(root, "background.js"), "utf8")
 manifest.background = {scripts: [...background.matchAll(/"(js\/[^"]+\.js)"/g)].map(m => m[1])}
-manifest.browser_specific_settings = {gecko: {id: "read-aloud-highlight@dorzairi.dev", strict_min_version: "140.0"}}
+//its own name, so it isn't mistaken for the original Read Aloud listing
+manifest.name = "Read Aloud Highlight"
+manifest.short_name = "Read Aloud Highlight"
+manifest.browser_specific_settings = {gecko: {
+  id: "read-aloud-highlight@dorzairi.dev",
+  strict_min_version: "140.0",
+  //text is sent to cloud voices and the language detection service
+  data_collection_permissions: {required: ["websiteContent"]},
+}}
 manifest.permissions = manifest.permissions.filter(p => !["offscreen", "tts", "ttsEngine"].includes(p))
 delete manifest.key
 delete manifest.oauth2
